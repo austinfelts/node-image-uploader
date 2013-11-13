@@ -1,4 +1,4 @@
-Node Image Uploader and Resizer
+Node.js Image Uploader and Resizer
 ==================================
 
 Installation
