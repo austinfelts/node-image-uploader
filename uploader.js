@@ -16,7 +16,8 @@ var uploadingFiles = [];
 // function to display usage help
 var printUsage = function printUsage() {
   console.log(
-    "\n Image Uploader Usage:\n" +
+    "\n Usage:\n" +
+    "\n node uploader [options] <path(s)>\n" +
     "\n -h --help       Display usage help (this screen)" +
     "\n -l --limit      Limit number of processes per path" +
     "\n -p --preset     Specify a defined preset to run" +
