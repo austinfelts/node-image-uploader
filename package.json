@@ -1,0 +1,18 @@
+{
+  "name": "node-image-uploader",
+  "version": "0.1.1",
+  "author": "Michael Payne <michaelp@trollandtoad.com>",
+  "description": "Node.js Image Uploader and Resizer",
+  "contributors": [],
+  "main": "uploader.js",
+  "private": true,
+  "dependencies": {
+    "pg": "latest",
+    "async": "latest"
+  },
+  "engines": {
+    "node": ">=0.10"
+  },
+  "bundleDependencies": ["imager"],
+  "devDependencies": {}
+}

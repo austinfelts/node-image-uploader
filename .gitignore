@@ -1,0 +1,3 @@
+node_modules/*
+imager-config.js
+postgres-config.js
