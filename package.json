@@ -8,11 +8,10 @@
   "private": true,
   "dependencies": {
     "pg": "latest",
-    "async": "latest"
+    "async": "latest",
+    "imager": "latest"
   },
   "engines": {
     "node": ">=0.10"
-  },
-  "bundleDependencies": ["imager"],
-  "devDependencies": {}
+  }
 }
