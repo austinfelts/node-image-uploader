@@ -8,18 +8,20 @@
  * Module dependencies.
  */
 
-var gm = require('gm').subClass({ imageMagick: true })
-  , fs = require('fs')
-  , path = require('path')
-  , mime = require('mime')
-  , pkgcloud = require('pkgcloud')
-  , knox = require('knox')
-  , async = require('async')
-  , os = require('os')
-  , _ = require('underscore');
+/* eslint-disable semi */
 
-var debug, config, storage, uploadedFiles = [];
-var tempDir = path.normalize(os.tmpDir() + path.sep);
+const gm = require('gm').subClass({ imageMagick: true })
+const fs = require('fs')
+const path = require('path')
+const mime = require('mime')
+const pkgcloud = require('pkgcloud')
+const knox = require('knox')
+const async = require('async')
+const os = require('os')
+const _ = require('underscore')
+
+var debug;
+var tempDir = path.normalize(os.tmpdir() + path.sep);
 var contentType = {
   'image/jpeg': '.jpg',
   'image/jpg': '.jpg',
@@ -67,7 +69,6 @@ var Imager = module.exports = function Imager (config, storage) {
   this.clientCache = {};
 };
 
-
 Imager.prototype = {
 
   /**
@@ -112,9 +113,10 @@ Imager.prototype = {
       if (err) return callback(err);
 
       var prepare = function (file, fn) {
-        var ct = file['type'] || file.headers['content-type'];
-        var filename = variant.keepNames ? path.basename(file.name) :
-          Math.round(new Date().getTime()) + contentType[ct];
+        var ct = file.type || file.headers['content-type'];
+        var filename = variant.keepNames
+          ? path.basename(file.name)
+          : Math.round(new Date().getTime()) + contentType[ct];
 
         self.prepareUpload(file, filename, variant, fn);
       };
@@ -258,13 +260,13 @@ Imager.prototype = {
 
   resizeFile: function (file, preset, filename, cb) {
     var self = this;
-    var ct = file['type'] || file.headers['content-type'];
+    var ct = file.type || file.headers['content-type'];
     var remoteFile = preset.name + preset.sep + filename;
     var tempFile = path.join(tempDir, 'imager_' +
       Math.round(new Date().getTime()) + '_' +
       Math.floor(Math.random() * 1000) + contentType[ct]);
 
-    gm(file['path'])
+    gm(file.path)
       .autoOrient()
       .resize(preset.size.split('x')[0], preset.size.split('x')[1])
       .write(tempFile, function (err) {
@@ -330,19 +332,19 @@ Imager.prototype = {
 
   resizeAndCropFile: function (file, preset, filename, cb) {
     var self = this;
-    var ct = file['type'] || file.headers['content-type'];
+    var ct = file.type || file.headers['content-type'];
     var remoteFile = preset.name + preset.sep + filename;
     var tempFile = path.join(tempDir, 'imager_' +
       Math.round(new Date().getTime()) + '_' +
       Math.floor(Math.random() * 1000) + contentType[ct]);
 
-    gm(file['path'])
+    gm(file.path)
       .autoOrient()
       .resize(preset.type.resize.split('x')[0], preset.type.resize.split('x')[1])
       .gravity('Center')
       .crop(preset.type.crop.split('x')[0], preset.type.crop.split('x')[1])
       .write(tempFile, function (err) {
-        if (err) return cb(err);
+        if (err) throw new Error(err)
         async.each(self.storage, function (storage, cb) {
           self['pushTo' + storage](tempFile, remoteFile, filename, ct, cb);
         }, function (err) {
@@ -368,11 +370,11 @@ Imager.prototype = {
    */
 
   pushToLocal: function (tempFile, localFile, filename, type, cb) {
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
     var localPath = path.resolve(path.join( // find destination path
-      this.config['storage']['Local'].path, directory, localFile
+      this.config.storage.Local.path, directory, localFile
     ));
-    var mode = this.config['storage']['Local'].mode || 0777;
+    var mode = this.config.storage.Local.mode || '0777';
 
     // make sure destination directory exists before writing
     async.reduce(path.dirname(localPath).split(path.sep), '',
@@ -380,27 +382,30 @@ Imager.prototype = {
         if (item === '') item = path.sep; // for linux
         var dir = memo ? path.join(memo, item) : item;
 
-        fs.exists(dir, function (exists) {
-          if (exists) return next(null, dir);
-          else fs.mkdir(dir, mode, function (err) {
-            if (err && fs.existsSync(dir)) {
-              return next(null, dir);
-            } else {
-              return next(err, err ? null : dir);
-            }
-          });
+        fs.statSync(dir, function (exists) {
+          if (exists) {
+            return next(null, dir);
+          } else {
+            fs.mkdir(dir, mode, function (err) {
+              if (err && fs.existsSync(dir)) {
+                return next(null, dir);
+              } else {
+                return next(err, err ? null : dir);
+              }
+            });
+          }
         });
       }, function (err, memo) {
         if (err) return cb(err);
         var cbCalled = false;
- 
+
         var rs = fs.createReadStream(tempFile);
         rs.on('error', function (err) {
           if (!cbCalled) cb(err);
           cbCalled = true;
         });
 
-        var ws = fs.createWriteStream(localPath, {mode: mode});
+        var ws = fs.createWriteStream(localPath, { mode: mode });
         ws.on('error', function (err) {
           if (!cbCalled) cb(err);
           cbCalled = true;
@@ -425,14 +430,14 @@ Imager.prototype = {
   */
 
   getClientForRackspace: function (cb) {
-    var clientConfig = this.config['storage']['Rackspace'];
+    var clientConfig = this.config.storage.Rackspace;
 
-    var client = this.clientCache['Rackspace'];
+    var client = this.clientCache.Rackspace;
     if (!client) {
       // this maintains compatibility with v0.1.12 config files
       if (clientConfig.auth) {
         for (var key in clientConfig.auth) {
-          if (clientConfig.hasOwnProperty(key)) continue;
+          if (Object.prototype.hasOwnProperty.call(clientConfig, key)) continue;
           clientConfig[key] = clientConfig.auth[key];
         }
         clientConfig.authUrl = clientConfig.host;
@@ -443,16 +448,16 @@ Imager.prototype = {
 
       if (!clientConfig.provider) clientConfig.provider = 'rackspace';
       client = pkgcloud.storage.createClient(clientConfig);
-      if (!client) return cb('Unable to create client for Rackspace');
+      if (!client) return cb(Error('Unable to create client for Rackspace'));
 
       client.containerCache = {};
-      this.clientCache['Rackspace'] = client;
+      this.clientCache.Rackspace = client;
     }
 
     var container = client.containerCache[clientConfig.container];
     if (!container) {
-      client.containerCache[clientConfig.container] = {connecting: true};
-      client.getContainer(clientConfig.container, function gc(err, container) {
+      client.containerCache[clientConfig.container] = { connecting: true };
+      client.getContainer(clientConfig.container, function gc (err, container) {
         if (err && err.statusCode === 404) {
           log('Creating container ' + clientConfig.container);
           client.createContainer(clientConfig.container, gc);
@@ -484,7 +489,7 @@ Imager.prototype = {
 
   pushToRackspace: function (tempFile, remoteFile, filename, type, cb) {
     var self = this;
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
 
     this.getClientForRackspace(function (err, client, container) {
       if (err) return cb(err);
@@ -525,12 +530,12 @@ Imager.prototype = {
 
   pushToS3: function (tempFile, remoteFile, filename, type, cb) {
     var self = this;
-    var s3Config = this.config['storage']['S3'];
+    var s3Config = this.config.storage.S3;
     var client = knox.createClient(s3Config);
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
 
     var options = { 'x-amz-acl': 'public-read' };
-    if(s3Config.storageClass) {
+    if (s3Config.storageClass) {
       options['x-amz-storage-class'] = s3Config.storageClass;
     }
 
@@ -622,10 +627,10 @@ Imager.prototype = {
   removeFromLocal: function (file, preset, cb) {
     var localFile = preset.name + preset.sep + file;
 
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
 
     var localPath = path.resolve(path.join( // find destination path
-      this.config['storage']['Local'].path, directory, localFile
+      this.config.storage.Local.path, directory, localFile
     ));
 
     fs.unlink(localPath, function (err) {
@@ -649,11 +654,11 @@ Imager.prototype = {
    */
 
   removeFromRackspace: function (file, preset, cb) {
-    var self = this;
     var remoteFile = preset.name + preset.sep + file;
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
 
     this.getClientForRackspace(function (err, client, container) {
+      if (err) throw new Error(err)
       client.removeFile(container, directory + remoteFile, function (err) {
         if (!err) {
           log(remoteFile + ' removed');
@@ -679,10 +684,9 @@ Imager.prototype = {
    */
 
   removeFromS3: function (file, preset, cb) {
-    var self = this;
-    var client = knox.createClient(this.config['storage']['S3']);
+    var client = knox.createClient(this.config.storage.S3);
     var remoteFile = preset.name + preset.sep + file;
-    var directory = this.config['storage']['uploadDirectory'] || '';
+    var directory = this.config.storage.uploadDirectory || '';
 
     client.deleteFile(directory + remoteFile, function (err, res) {
       log(remoteFile + ' removed');
@@ -716,7 +720,7 @@ function log (str) {
 function getFileInfo (file, cb) {
   var f = {
     size: fs.statSync(file).size,
-    type: mime.lookup(file),
+    type: mime.getType(file),
     name: file.split('/')[file.split('/').length - 1],
     path: file
   };
