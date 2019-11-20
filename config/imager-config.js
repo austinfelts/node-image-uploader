@@ -47,5 +47,5 @@ module.exports = {
     }
   },
 
-  debug: process.env.DEBUG
+  debug: process.env.DEBUGGING
 }
