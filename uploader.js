@@ -114,11 +114,13 @@ const uploader = async (filePath, callback) => {
     callback(Error(`Filename \`${fileName}\` is invalid. Must contain a Product ID`))
   }
 
+  const safeTypes = ['jpg', 'png']
+
   // Invalid Image type
   if (!mimeType || typeof (mimeType) === 'undefined') {
     throw new Error('Unable to determine File Type. Are you sure this is a Image?\n', fileName)
-  } else if (mimeType !== ('jpg' || 'png')) {
-    removeTempFile(filePath)
+  } else if (safeTypes.indexOf(mimeType) !== 0) {
+    console.log(removeTempFile(filePath))
 
     callback(Error(`Invalid File Type: \`${mimeType}\``))
   }
@@ -152,7 +154,7 @@ const passToImager = (imageInfo, targets) => {
     var pg = global.pg
 
     if (preset === 'products') {
-      printDebug('DB Connection Information', (await pg.debug()).rows[0], true)
+      printDebug((await pg.debug()).rows[0], 'DB Connection Information')
 
       // update database with file names
       pg.query({
@@ -166,7 +168,7 @@ const passToImager = (imageInfo, targets) => {
 
         setTimeout(async () => {
           var updatedRes = await pg.query('SELECT picture, thumbnail, small, productid from t_product where productid = ' + productId)
-          printDebug('Updated Results', updatedRes.rows[0])
+          printDebug(updatedRes.rows[0], 'Updated Results')
         }, 150)
 
         removeTempFile(filePath, global.uploadingFiles)
@@ -212,8 +214,6 @@ const explorer = function explorer (files, dir, callback) {
 
   async.eachLimit(files, limit, function (file, next) {
     var filePath = path.resolve(path.join(dir || '', file));
-
-    console.log(fs.existsSync(filePath))
 
     if (fs.existsSync(filePath) === false) {
       console.log('Attempting to create directory: ', filePath)
