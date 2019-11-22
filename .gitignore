@@ -1,1 +1,13 @@
+# Node Modules
 node_modules/*
+
+
+# Environment config
+.env
+
+# Logging
+logs/*
+
+# Images
+images/*
+
