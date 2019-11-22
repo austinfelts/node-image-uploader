@@ -10,7 +10,7 @@
 
 /* eslint-disable semi */
 
-const gm = require('gm').subClass({ imageMagick: true })
+const im = require('imagemagick')
 const fs = require('fs')
 const path = require('path')
 const mime = require('mime')
@@ -121,9 +121,11 @@ Imager.prototype = {
         self.prepareUpload(file, filename, variant, fn);
       };
 
-      async.forEach(files, prepare, function (err) {
-        if (err) return callback(err);
-        callback(null, self.cdnUri, self.uploadedFiles);
+      async.each(files, function (file, callback) {
+        prepare(file)
+        callback(null, self.cdnUri, self.uploadedFiles)
+      }, function (err) {
+        callback(err)
       });
     });
 
@@ -168,7 +170,7 @@ Imager.prototype = {
       self.prepareRemove(file, fn, self.config.variants[variant]);
     };
 
-    async.forEach(files, prepareRemove, function (err) {
+    async.each(files, prepareRemove, function (err) {
       if (err) return callback(err);
       callback(null);
     });
@@ -260,27 +262,43 @@ Imager.prototype = {
 
   resizeFile: function (file, preset, filename, cb) {
     var self = this;
-    var ct = file.type || file.headers['content-type'];
-    var remoteFile = preset.name + preset.sep + filename;
+    var ct = file.type;
+
     var tempFile = path.join(tempDir, 'imager_' +
       Math.round(new Date().getTime()) + '_' +
       Math.floor(Math.random() * 1000) + contentType[ct]);
 
-    gm(file.path)
-      .autoOrient()
-      .resize(preset.size.split('x')[0], preset.size.split('x')[1])
-      .write(tempFile, function (err) {
-        if (err) return cb(err);
-        async.each(self.storage, function (storage, cb) {
-          self['pushTo' + storage](tempFile, remoteFile, filename, ct, cb);
-        }, function (err) {
-          fs.unlink(tempFile, function (err) {
-            if (err) console.error(err);
-          });
-          if (err) cb(err);
-          else cb(null, filename);
+    const { extractProductId } = require('./utils')
+    /* this was 'patched' in and could be better. This tels Rackspace to save
+       the file as: preset.name/productid */
+    var productId = extractProductId(filename)
+
+    if (productId) {
+      var fileExtension = filename.match(/\.\w{3}/);
+      filename = productId + fileExtension.join()
+    }
+
+    var remoteFile = preset.name + preset.sep + filename;
+
+    im.resize({
+      srcPath: file.path,
+      dstPath: tempFile,
+      quality: 1.0,
+      width: preset.size.split('x')[0],
+      height: preset.size.split('x')[1]
+    }, (err, stdout, stderr) => {
+      if (err) throw new Error(err);
+
+      async.each(self.storage, function (storage, cb) {
+        self['pushTo' + storage](tempFile, remoteFile, filename, ct, cb);
+      }, function (err) {
+        if (err) cb(err);
+        fs.unlink(tempFile, function (err) {
+          if (err) console.error('Error unlinking tempFile!\n', err);
         });
+        cb(null, filename);
       });
+    });
   },
 
   /**
@@ -294,15 +312,16 @@ Imager.prototype = {
    * @api public
    */
 
+  // Needs updated to reflect ImageMagick's uses
   cropFile: function (file, preset, filename, cb) {
     var self = this;
-    var ct = file['type'] || file.headers['content-type'];
+    var ct = file.type || file.headers['content-type'];
     var remoteFile = preset.name + preset.sep + filename;
     var tempFile = path.join(tempDir, 'imager_' +
       Math.round(new Date().getTime()) + '_' +
       Math.floor(Math.random() * 1000) + contentType[ct]);
 
-    gm(file['path'])
+    gm(file.path)
       .autoOrient()
       .crop(preset.size.split('x')[0], preset.size.split('x')[1])
       .write(tempFile, function (err) {
@@ -330,6 +349,7 @@ Imager.prototype = {
    * @api public
    */
 
+  // Needs updated to reflect ImageMagick's uses
   resizeAndCropFile: function (file, preset, filename, cb) {
     var self = this;
     var ct = file.type || file.headers['content-type'];
@@ -411,7 +431,7 @@ Imager.prototype = {
           cbCalled = true;
         });
         ws.on('finish', function () {
-          log(localFile + ' written');
+          log(localFile + ' file saved');
           if (!cbCalled) cb(null, filename);
           cbCalled = true;
         });
