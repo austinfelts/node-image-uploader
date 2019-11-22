@@ -1,5 +1,6 @@
 /* eslint-disable semi */
-'use strict';
+'use strict'
+require('dotenv').config()
 
 var fs = require('fs');
 var path = require('path');
@@ -7,14 +8,18 @@ var async = require('async');
 
 var limit = 10; // limit processes per path
 var period = 600; // seconds between checks
-var pgConfig = require('./postgres-config.js');
-var imagerConfig = require('./imager-config.js');
+var pgConfig = require('./config/postgres-config.js');
+var imagerConfig = require('./config/imager-config.js');
 
 var preset = '';
-var targets = [];
+global.targets = [];
 var basePaths = [];
 var watchedPaths = [];
-var uploadingFiles = [];
+global.uploadingFiles = [];
+global.wsServer = require('./libs/websocket')
+
+const utils = require('./libs/utils')
+const { removeTempFile, printDebug } = utils
 
 // function to display usage help
 var printUsage = function printUsage () {
@@ -36,7 +41,6 @@ for (var i = 2; i < process.argv.length; i++) {
     case '--help':
       printUsage();
       process.exit(0);
-      break;
     case '-l':
     case '--limit':
       limit = parseInt(process.argv[++i], 10) || limit;
@@ -47,7 +51,7 @@ for (var i = 2; i < process.argv.length; i++) {
       break;
     case '-t':
     case '--target':
-      targets.push(process.argv[++i]);
+      global.targets.push(process.argv[++i]);
       break;
     case '-s':
     case '--source':
@@ -61,7 +65,7 @@ for (var i = 2; i < process.argv.length; i++) {
 
 try {
   if (!preset) throw new Error('Preset is required.');
-  if (!targets.length) throw new Error('Target is required.');
+  if (!global.targets.length) throw new Error('Target is required.');
   if (!basePaths.length) throw new Error('Starting path is required.');
 } catch (err) {
   console.log('\n' + err);
@@ -69,61 +73,125 @@ try {
   process.exit(1);
 }
 
-var pg = require('pg');
-var Imager = require('imager');
-var imager = new Imager(imagerConfig, targets);
+const initPostgresClient = (config) => {
+  // Needs error checking
+  const createClient = config => {
+    const { Pool } = require('pg')
+    const pool = new Pool(config)
+
+    if (process.env.DEBUGGING) {
+      const cols = ['current_database()', 'inet_client_addr()', 'inet_server_addr()', 'session_user', 'user', 'version()']
+      pool.debug = async () => {
+        return pool.query(`select ${cols.join(', ')}`)
+      }
+    }
+
+    return pool
+  }
+
+  return createClient(config)
+}
+global.pg = initPostgresClient(pgConfig)
 
 // function to upload files to storage
-var uploader = function uploader (filePath, callback) {
-  filePath = path.resolve(filePath);
-  if (uploadingFiles.indexOf(filePath) !== -1) return;
+const uploader = async (filePath, callback) => {
+  const { getFileInfo, extractProductId } = utils
 
-  console.log('Processing file ' + filePath);
   var fileName = path.basename(filePath);
-  var productId = parseInt(fileName.split('.').shift(),10);
-  if (!productId || !fileName || isNaN(productId)) return callback('File name is invalid.');
-  uploadingFiles.push(filePath);
+  var mimeType = (await getFileInfo(filePath)).toLowerCase()
 
-  imager.upload(filePath, function (err, uri, files) {
-    if (err) return callback(err);
+  if (global.uploadingFiles.indexOf(filePath) !== -1) return
+
+  console.log('Processing file ' + fileName + ' ...\n')
+
+  // our Product IDs start at 5 in length up to and ending at 7 (For now. -386,827 products to go as of 11/11/2019)
+  var productId = extractProductId(fileName)
+
+  // Invalid File name
+  if (!productId || !fileName || isNaN(productId)) {
+    removeTempFile(filePath)
+
+    callback(Error(`Filename \`${fileName}\` is invalid. Must contain a Product ID`))
+  }
+
+  // Invalid Image type
+  if (!mimeType || typeof (mimeType) === 'undefined') {
+    throw new Error('Unable to determine File Type. Are you sure this is a Image?\n', fileName)
+  } else if (mimeType !== '(jpg' || 'png')) {
+    removeTempFile(filePath)
+
+    callback(Error(`Invalid File Type: \`${mimeType}\``))
+  }
+
+  // Add this filepath to the queue
+  global.uploadingFiles.push(filePath)
+
+  // Pass info to Imager to begin processing, may not need timeout.
+  setTimeout(
+    () => passToImager({
+      filePath,
+      mimeType,
+      productId,
+      preset
+    }, global.targets),
+    250
+  )
+
+  return 
+}
+
+const passToImager = (imageInfo, targets) => {
+  const Imager = require('./libs/imager')
+  const imager = new Imager(imagerConfig, targets)
+
+  var { filePath, mimeType, productId, preset } = imageInfo
+
+  imager.upload(filePath, async function (err, uri, files) {
+    var imageName = `${productId}.${mimeType}`
+
+    if (err) throw new Error(err)
+
+    var pg = global.pg
 
     if (preset === 'products') {
+      printDebug('DB Connection Information', (await pg.debug()).rows[0], true)
+
       // update database with file names
-      pg.connect(pgConfig, function (err, client, done) {
-        client.query({
-          name: 'imager_picture_update',
-          text: 'UPDATE t_product SET picture = $1, thumbnail = $1, small = $1 WHERE productid = $2',
-          values: [fileName, productId]
-        }, function (err, results) {
-          done();
-          if (err) {
-            callback(err);
-          } else fs.unlink(filePath, function (err) {
-            uploadingFiles.splice(uploadingFiles.indexOf(filePath), 1);
-            callback(err);
-          });
-        });
-      });
-    } else fs.unlink(filePath, function (err) {
-      uploadingFiles.splice(uploadingFiles.indexOf(filePath), 1);
-      callback(err);
-    });
-  }, preset);
-};
+      pg.query({
+        name: 'imager_picture_update',
+        text: 'UPDATE t_product SET picture = $1, thumbnail = $1, small = $1 WHERE productid = $2',
+        values: [imageName, productId]
+      }, async (err, res) => {
+        if (err) console.log('[ERROR] PG\t' + err)
+
+        console.log(`\nUpdated Product ${productId}\n`)
+
+        setTimeout(async () => {
+          var updatedRes = await pg.query('SELECT picture, thumbnail, small, productid from t_product where productid = ' + productId)
+          printDebug('Updated Results', updatedRes.rows[0])
+        }, 150)
+
+        removeTempFile(filePath, global.uploadingFiles)
+      })
+    }
+
+    console.log('Finished!')
+  }, preset)
+}
 
 // function to start monitoring directories
-var watcher = function watcher (watchPath) {
-  if (watchedPaths.indexOf(watchPath) !== -1) return;
+const watcher = function (watchPath) {
+  if (watchedPaths.indexOf(watchPath) !== -1) return
 
-  console.log('Watching path ' + watchPath);
-  watchedPaths.push(watchPath);
+  console.log('Watching path ' + watchPath)
+  watchedPaths.push(watchPath)
 
   fs.watch(watchPath, function process (event, file) {
     if (file) {
       fs.stat(path.join(watchPath, file), function (err, stat) {
         if (err || !stat || stat.isDirectory()) return;
         if (event !== 'change' || !stat.size) return; // ignore event
-        if (uploadingFiles.length > limit) { // defer if over limit
+        if (global.uploadingFiles.length > limit) { // defer if over limit
           return setTimeout(process.bind(this, event, file), 1000);
         }
 
@@ -136,7 +204,7 @@ var watcher = function watcher (watchPath) {
 };
 
 // function to traverse directory trees and find files
-var explorer = function explorer (files, dir, callback) {
+const explorer = function explorer (files, dir, callback) {
   if (arguments.length === 2) {
     callback = dir;
     dir = undefined;
@@ -145,9 +213,15 @@ var explorer = function explorer (files, dir, callback) {
   if (!Array.isArray(files)) files = [files];
 
   async.eachLimit(files, limit, function (file, next) {
-    // console.log(dir);
-    // console.log(file);
-    var filePath = path.join(dir || '', file);
+    var filePath = path.resolve(path.join(dir || '', file));
+
+    console.log(fs.existsSync(filePath))
+
+    if (fs.existsSync(filePath) === false) {
+      console.log('Attempting to create directory: ', filePath)
+      fs.mkdirSync(filePath, { recursive: true })
+    }
+
     var fileStat = fs.statSync(filePath);
 
     if (fileStat && fileStat.isDirectory()) {
@@ -160,6 +234,33 @@ var explorer = function explorer (files, dir, callback) {
     }
   }, callback);
 };
+
+const initReplServer = (addons) => {
+  const repl = require('./libs/repl')
+  return repl.startServer({
+    default: true,
+    addons: addons,
+    useGlobal: process.env.DEBUGGING
+  })
+}
+const replAddons = {
+  events: [
+    {
+      name: 'exit',
+      func: () => {
+        console.log('Terminating script!')
+
+        console.log('Closing PG connection...')
+        global.pg.end()
+
+        console.log('\nGoodbye!')
+        process.exit(0)
+      }
+    }
+  ]
+}
+
+initReplServer(replAddons)
 
 // main loop periodically scans base paths
 explorer(basePaths, function finish (err) {
