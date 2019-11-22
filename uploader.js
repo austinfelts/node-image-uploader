@@ -136,8 +136,6 @@ const uploader = async (filePath, callback) => {
     }, global.targets),
     250
   )
-
-  return 
 }
 
 const passToImager = (imageInfo, targets) => {
@@ -243,6 +241,7 @@ const initReplServer = (addons) => {
     useGlobal: process.env.DEBUGGING
   })
 }
+
 const replAddons = {
   events: [
     {
