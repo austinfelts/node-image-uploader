@@ -117,7 +117,7 @@ const uploader = async (filePath, callback) => {
   // Invalid Image type
   if (!mimeType || typeof (mimeType) === 'undefined') {
     throw new Error('Unable to determine File Type. Are you sure this is a Image?\n', fileName)
-  } else if (mimeType !== '(jpg' || 'png')) {
+  } else if (mimeType !== ('jpg' || 'png')) {
     removeTempFile(filePath)
 
     callback(Error(`Invalid File Type: \`${mimeType}\``))
