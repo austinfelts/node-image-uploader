@@ -73,18 +73,11 @@ try {
   process.exit(1);
 }
 
-const initPostgresClient = (config) => {
+const initPostgresClient = async (config) => {
   // Needs error checking
   const createClient = config => {
     const { Pool } = require('pg')
     const pool = new Pool(config)
-
-    if (process.env.DEBUGGING) {
-      const cols = ['current_database()', 'inet_client_addr()', 'inet_server_addr()', 'session_user', 'user', 'version()']
-      pool.debug = async () => {
-        return pool.query(`select ${cols.join(', ')}`)
-      }
-    }
 
     return pool
   }
@@ -92,6 +85,17 @@ const initPostgresClient = (config) => {
   return createClient(config)
 }
 global.pg = initPostgresClient(pgConfig)
+
+if (process.env.DEBUGGING) {
+  (async () => {
+    var pg = global.pg
+    const cols = ['current_database()', 'inet_client_addr()', 'inet_server_addr()', 'session_user', 'user', 'version()']
+
+    var debugInfo = pg.query(`select ${cols.join(', ')}`)
+
+    printDebug((await debugInfo).rows[0], 'DB Connection Information')
+  })()
+}
 
 // function to upload files to storage
 const uploader = async (filePath, callback) => {
@@ -147,14 +151,12 @@ const passToImager = (imageInfo, targets) => {
   var { filePath, mimeType, productId, preset } = imageInfo
 
   imager.upload(filePath, async function (err, uri, files) {
-    var imageName = `${productId}.${mimeType}`
-
     if (err) throw new Error(err)
 
     var pg = global.pg
 
     if (preset === 'products') {
-      printDebug((await pg.debug()).rows[0], 'DB Connection Information')
+      var imageName = `${productId}.${mimeType}`
 
       // update database with file names
       pg.query({
@@ -162,9 +164,7 @@ const passToImager = (imageInfo, targets) => {
         text: 'UPDATE t_product SET picture = $1, thumbnail = $1, small = $1 WHERE productid = $2',
         values: [imageName, productId]
       }, async (err, res) => {
-        if (err) console.log('[ERROR] PG\t' + err)
-
-        console.log(`\nUpdated Product ${productId}\n`)
+        if (err) console.error('[PG]\t' + err)
 
         setTimeout(async () => {
           var updatedRes = await pg.query('SELECT picture, thumbnail, small, productid from t_product where productid = ' + productId)
