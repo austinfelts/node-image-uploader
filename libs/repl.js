@@ -8,19 +8,17 @@ const loadAddons = (repl, addons) => {
 
   if (!repl) throw new Error('`repl` module missing!')
 
-  if (commands) {
+  if (commands && commands.length) {
     commands.forEach(c => repl.defineCommand(c.name, c.func))
-    printDebug('Commands:\n', commands.map(x => `.${x.name}`).join(', '), '\n')
+    printDebug(commands.map(x => `.${x.name}`).join(', ') + '\n', 'Commands:')
   }
 
-  if (events) {
+  if (events && events.length) {
     events.forEach(e => repl.on(e.name, e.func))
-    printDebug('Hooked:\n', events.map(x => `${x.name}`).join(', '), '\n')
+    printDebug(events.map(x => x.name).join(', ') + '\n', 'Events:')
   }
 
-  if (!commands && !events) return
-
-  printDebug('Loaded repl Addons!\n')
+  if (commands.length || events.length) return true
 }
 
 const startServer = (options) => {
@@ -29,37 +27,30 @@ const startServer = (options) => {
     useColors: true
   }
 
+  // Merge passed in options with default options
   if (options.default) {
-    // Merge passed in options with default options
     Object.assign(options, defaultOptions)
   }
 
-  const r = repl.start(options || defaultOptions)
+  const r = repl.start(options)
 
-  var addons
+  let addons
   try {
-    // always try to load in the default addons, if provided.
     addons = require('./repl_addons')
-  } catch (error) {
-    printDebug('missing default addons')
-    addons = [{ commands: [], events: [] }]
-  }
-
-  // load any extra addons passed along
-  if (options.addons) {
-    var { commands, events } = options.addons
-
-    if (commands) {
-      options.addons.commands.forEach(c => addons.commands.push(c))
+  } catch (err) {
+    if (err.code !== 'MODULE_NOT_FOUND') {
+      console.warn(err)
     }
 
-    if (events) {
-      options.addons.events.forEach(e => addons.events.push(e))
-    }
+    addons = { commands: [], events: [] }
   }
+
+  Object.assign(addons, options.addons)
 
   if (addons) {
-    loadAddons(r, addons)
+    if (loadAddons(r, addons)) {
+      printDebug('Loaded repl Addons!\n')
+    }
   }
 
   return r

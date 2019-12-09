@@ -237,30 +237,38 @@ const initReplServer = (addons) => {
   const repl = require('./libs/repl')
 
   return repl.startServer({
-    addons: addons,
+    addons,
+    default: true,
     useGlobal: process.env.DEBUGGING
   })
 }
 
+// Tiny func to notify and then close PG connection
+const safeExit = async () => {
+  console.log('Terminating script!')
+
+  console.log('Closing PG connection...')
+  await global.pg.end()
+
+  console.log('\nGoodbye!')
+  process.exit(0)
+}
+
+// To be called from REPL addon.
+process.safeExit = safeExit
+
+// Runs safeExit() on REPL "exit" event (ctrl+c twice or ctrl+d)
 const replAddons = {
   events: [
     {
       name: 'exit',
-      func: () => {
-        console.log('Terminating script!')
-
-        console.log('Closing PG connection...')
-        global.pg.end()
-
-        console.log('\nGoodbye!')
-        process.exit(0)
-      }
+      func: safeExit
     }
   ]
 }
 
 initReplServer(replAddons)
-  .setupHistory(path.resolve(os.homedir(), '.node_repl_history'),
+  .setupHistory(path.resolve(require('os').homedir(), '.node_repl_history'),
     (err, repl) => {
       if (err) console.log(err)
 
