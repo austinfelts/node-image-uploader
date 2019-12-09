@@ -86,9 +86,13 @@ module.exports = {
           if (err) throw new Error(err)
           // Remove file from array 'buffer/history'
           if (filesArray) {
-            filesArray.splice(filesArray.indexOf(filepath), 1)
+            if (filesArray.constructor === Array) {
+              filesArray.splice(filesArray.indexOf(filepath), 1)
 
-            return true
+              return true
+            } else if (filesArray.constructor === Set) {
+              return filesArray.delete(filepath)
+            }
           }
         })
       }, 1000)
