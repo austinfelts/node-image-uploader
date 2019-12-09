@@ -73,7 +73,7 @@ try {
   process.exit(1);
 }
 
-const initPostgresClient = async (config) => {
+const initPostgresClient = (config) => {
   // Needs error checking
   const createClient = config => {
     const { Pool } = require('pg')
@@ -91,9 +91,9 @@ if (process.env.DEBUGGING) {
     var pg = global.pg
     const cols = ['current_database()', 'inet_client_addr()', 'inet_server_addr()', 'session_user', 'user', 'version()']
 
-    var debugInfo = pg.query(`select ${cols.join(', ')}`)
+    var debugInfo = await pg.query(`select ${cols.join(', ')}`)
 
-    printDebug((await debugInfo).rows[0], 'DB Connection Information')
+    printDebug((debugInfo).rows[0], 'DB Connection Information')
   })()
 }
 
@@ -113,7 +113,7 @@ const uploader = async (filePath, callback) => {
 
   // Invalid File name
   if (!productId || !fileName || isNaN(productId)) {
-    removeTempFile(filePath)
+    removeTempFile(filePath, global.uploadingFiles)
 
     callback(Error(`Filename \`${fileName}\` is invalid. Must contain a Product ID`))
   }
@@ -235,8 +235,8 @@ const explorer = function explorer (files, dir, callback) {
 
 const initReplServer = (addons) => {
   const repl = require('./libs/repl')
+
   return repl.startServer({
-    default: true,
     addons: addons,
     useGlobal: process.env.DEBUGGING
   })
@@ -260,6 +260,12 @@ const replAddons = {
 }
 
 initReplServer(replAddons)
+  .setupHistory(path.resolve(os.homedir(), '.node_repl_history'),
+    (err, repl) => {
+      if (err) console.log(err)
+
+      return repl
+    })
 
 // main loop periodically scans base paths
 explorer(basePaths, function finish (err) {
